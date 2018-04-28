@@ -61,13 +61,26 @@ final class JobEventRdbStorage {
         initTablesAndIndexes();
     }
     
+    /**
+     * LEVEL 1
+     * @throws SQLException
+     */
     private void initTablesAndIndexes() throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
-            createJobExecutionTableAndIndexIfNeeded(conn);
+        	databaseType = DatabaseType.valueFrom(conn.getMetaData().getDatabaseProductName());
+            if(DatabaseType.Oracle.equals(databaseType)){
+            	OralceStorage oracleStorage = new OralceStorage();
+            	oracleStorage.createJobExecutionTableAndIndexIfNeeded(conn);
+            	oracleStorage.createJobStatusTraceTableAndIndexIfNeeded(conn);
+            	return;
+            }
+        	createJobExecutionTableAndIndexIfNeeded(conn);
             createJobStatusTraceTableAndIndexIfNeeded(conn);
-            databaseType = DatabaseType.valueFrom(conn.getMetaData().getDatabaseProductName());
+            
         }
     }
+    
+
     
     private void createJobExecutionTableAndIndexIfNeeded(final Connection conn) throws SQLException {
         DatabaseMetaData dbMetaData = conn.getMetaData();
@@ -148,17 +161,36 @@ final class JobEventRdbStorage {
         }
     }
     
-    boolean addJobExecutionEvent(final JobExecutionEvent jobExecutionEvent) {
-        if (null == jobExecutionEvent.getCompleteTime()) {
-            return insertJobExecutionEvent(jobExecutionEvent);
-        } else {
-            if (jobExecutionEvent.isSuccess()) {
-                return updateJobExecutionEventWhenSuccess(jobExecutionEvent);
-            } else {
-                return updateJobExecutionEventFailure(jobExecutionEvent);
-            }
-        }
-    }
+    /**
+     * Level 1
+     * @param jobExecutionEvent
+     * @return
+     */
+	boolean addJobExecutionEvent(final JobExecutionEvent jobExecutionEvent) {
+		if (DatabaseType.Oracle.equals(databaseType)) {
+			OralceStorage oralceStorage = new OralceStorage();
+			if (null == jobExecutionEvent.getCompleteTime()) {
+				return oralceStorage.insertJobExecutionEvent(jobExecutionEvent);
+			} else {
+				if (jobExecutionEvent.isSuccess()) {
+					return oralceStorage.updateJobExecutionEventWhenSuccess(jobExecutionEvent);
+				} else {
+					return oralceStorage.updateJobExecutionEventFailure(jobExecutionEvent);
+				}
+			}
+
+		} else {
+			if (null == jobExecutionEvent.getCompleteTime()) {
+				return insertJobExecutionEvent(jobExecutionEvent);
+			} else {
+				if (jobExecutionEvent.isSuccess()) {
+					return updateJobExecutionEventWhenSuccess(jobExecutionEvent);
+				} else {
+					return updateJobExecutionEventFailure(jobExecutionEvent);
+				}
+			}
+		}
+	}
     
     private boolean insertJobExecutionEvent(final JobExecutionEvent jobExecutionEvent) {
         boolean result = false;
@@ -292,14 +324,26 @@ final class JobEventRdbStorage {
         return result;
     }
     
+    
+    /**
+     * Level 1
+     * @param jobStatusTraceEvent
+     * @return
+     */
     boolean addJobStatusTraceEvent(final JobStatusTraceEvent jobStatusTraceEvent) {
         String originalTaskId = jobStatusTraceEvent.getOriginalTaskId();
         if (State.TASK_STAGING != jobStatusTraceEvent.getState()) {
             originalTaskId = getOriginalTaskId(jobStatusTraceEvent.getTaskId());
         }
         boolean result = false;
-        String sql = "INSERT INTO `" + TABLE_JOB_STATUS_TRACE_LOG + "` (`id`, `job_name`, `original_task_id`, `task_id`, `slave_id`, `source`, `execution_type`, `sharding_item`,  " 
+        String sql = "";
+        if(DatabaseType.Oracle.equals(databaseType)){
+        	sql = "INSERT INTO " + TABLE_JOB_STATUS_TRACE_LOG + " (id, job_name, original_task_id, task_id, slave_id, source, execution_type, sharding_item,  " 
+                    + "state, message, creation_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
+        }else{
+        	sql = "INSERT INTO `" + TABLE_JOB_STATUS_TRACE_LOG + "` (`id`, `job_name`, `original_task_id`, `task_id`, `slave_id`, `source`, `execution_type`, `sharding_item`,  " 
                 + "`state`, `message`, `creation_time`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
+        }
         try (
                 Connection conn = dataSource.getConnection();
                 PreparedStatement preparedStatement = conn.prepareStatement(sql)) {
@@ -324,7 +368,12 @@ final class JobEventRdbStorage {
     }
     
     private String getOriginalTaskId(final String taskId) {
-        String sql = String.format("SELECT original_task_id FROM %s WHERE task_id = '%s' and state='%s' LIMIT 1", TABLE_JOB_STATUS_TRACE_LOG, taskId, State.TASK_STAGING);
+        String sql = "";
+        if(DatabaseType.Oracle.equals(databaseType)){
+        	sql = String.format("SELECT original_task_id FROM %s WHERE task_id = '%s' and state='%s' and rownum = 1", TABLE_JOB_STATUS_TRACE_LOG, taskId, State.TASK_STAGING);
+        }else{
+        	sql = String.format("SELECT original_task_id FROM %s WHERE task_id = '%s' and state='%s' LIMIT 1", TABLE_JOB_STATUS_TRACE_LOG, taskId, State.TASK_STAGING);
+        }
         String result = "";
         try (
                 Connection conn = dataSource.getConnection();
@@ -365,4 +414,227 @@ final class JobEventRdbStorage {
         }
         return result;
     }
+    
+    
+    
+    
+    
+    
+    
+    
+    /**
+     * 支持Oracle数据库SQL方言
+     * @author Liquid
+     *
+     */
+	final class OralceStorage {
+
+		private void createJobExecutionTableAndIndexIfNeeded(final Connection conn) throws SQLException {
+	        DatabaseMetaData dbMetaData = conn.getMetaData();
+	        try (ResultSet resultSet = dbMetaData.getTables(null, null, TABLE_JOB_EXECUTION_LOG, new String[]{"TABLE"})) {
+	            if (!resultSet.next()) {
+	                createJobExecutionTable(conn);
+	            }
+	        }
+	    }
+		
+		private void createJobExecutionTable(final Connection conn) throws SQLException {
+	        String dbSchema = "CREATE TABLE " + TABLE_JOB_EXECUTION_LOG + " ("
+	                + "id VARCHAR(40) PRIMARY KEY, "
+	                + "job_name VARCHAR(100) NOT NULL, "
+	                + "task_id VARCHAR(255) NOT NULL, "
+	                + "hostname VARCHAR(255) NOT NULL, "
+	                + "ip VARCHAR(50) NOT NULL, "
+	                + "sharding_item number NOT NULL, "
+	                + "execution_source VARCHAR(20) NOT NULL, "
+	                + "failure_cause VARCHAR(4000) NULL, "
+	                + "is_success number NOT NULL, "
+	                + "start_time TIMESTAMP NULL, "
+	                + "complete_time TIMESTAMP NULL) ";
+	        try (PreparedStatement preparedStatement = conn.prepareStatement(dbSchema)) {
+	            preparedStatement.execute();
+	        }
+	    }
+
+		private void createJobStatusTraceTableAndIndexIfNeeded(final Connection conn) throws SQLException {
+	        DatabaseMetaData dbMetaData = conn.getMetaData();
+	        try (ResultSet resultSet = dbMetaData.getTables(null, null, TABLE_JOB_STATUS_TRACE_LOG, new String[]{"TABLE"})) {
+	            if (!resultSet.next()) {
+	                createJobStatusTraceTable(conn);
+	            }
+	        }
+	        createTaskIdIndexIfNeeded(conn, TABLE_JOB_STATUS_TRACE_LOG, TASK_ID_STATE_INDEX);
+	    }
+		
+	    private void createJobStatusTraceTable(final Connection conn) throws SQLException {
+	        String dbSchema = "CREATE TABLE " + TABLE_JOB_STATUS_TRACE_LOG + " ("
+	                + "id VARCHAR(40) PRIMARY KEY, "
+	                + "job_name VARCHAR(100) NOT NULL, "
+	                + "original_task_id VARCHAR(255) NOT NULL, "
+	                + "task_id VARCHAR(255) NOT NULL, "
+	                + "slave_id VARCHAR(50) NOT NULL, "
+	                + "source VARCHAR(50) NOT NULL, "
+	                + "execution_type VARCHAR(20) NOT NULL, "
+	                + "sharding_item VARCHAR(100) NOT NULL, "
+	                + "state VARCHAR(20) NOT NULL, "
+	                + "message VARCHAR(4000) NULL, "
+	                + "creation_time TIMESTAMP NULL) ";
+	        try (PreparedStatement preparedStatement = conn.prepareStatement(dbSchema)) {
+	            preparedStatement.execute();
+	        }
+	    }
+	    
+	    private void createTaskIdIndexIfNeeded(final Connection conn, final String tableName, final String indexName) throws SQLException {
+	        DatabaseMetaData dbMetaData = conn.getMetaData();
+	        try (ResultSet resultSet = dbMetaData.getIndexInfo(null, null, tableName, false, false)) {
+	            boolean hasTaskIdIndex = false;
+	            while (resultSet.next()) {
+	                if (indexName.equals(resultSet.getString("INDEX_NAME"))) {
+	                    hasTaskIdIndex = true;    
+	                }
+	            }
+	            if (!hasTaskIdIndex) {
+	                createTaskIdAndStateIndex(conn, tableName);
+	            }
+	        }
+	    }
+	    
+	    private void createTaskIdAndStateIndex(final Connection conn, final String tableName) throws SQLException {
+	        String sql = "CREATE INDEX " + TASK_ID_STATE_INDEX + " ON " + tableName + " (task_id, state)";
+	        try (PreparedStatement preparedStatement = conn.prepareStatement(sql)) {
+	            preparedStatement.execute();
+	        }
+	    }
+	    
+	    
+	    private boolean insertJobExecutionEvent(final JobExecutionEvent jobExecutionEvent) {
+	        boolean result = false;
+	        String sql = "INSERT INTO " + TABLE_JOB_EXECUTION_LOG + " (id, job_name, task_id, hostname, ip, sharding_item, execution_source, is_success, start_time) "
+	                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+	        try (
+	                Connection conn = dataSource.getConnection();
+	                PreparedStatement preparedStatement = conn.prepareStatement(sql)) {
+	            preparedStatement.setString(1, jobExecutionEvent.getId());
+	            preparedStatement.setString(2, jobExecutionEvent.getJobName());
+	            preparedStatement.setString(3, jobExecutionEvent.getTaskId());
+	            preparedStatement.setString(4, jobExecutionEvent.getHostname());
+	            preparedStatement.setString(5, jobExecutionEvent.getIp());
+	            preparedStatement.setInt(6, jobExecutionEvent.getShardingItem());
+	            preparedStatement.setString(7, jobExecutionEvent.getSource().toString());
+	            preparedStatement.setBoolean(8, jobExecutionEvent.isSuccess());
+	            preparedStatement.setTimestamp(9, new Timestamp(jobExecutionEvent.getStartTime().getTime()));
+	            preparedStatement.execute();
+	            result = true;
+	        } catch (final SQLException ex) {
+	            if (!isDuplicateRecord(ex)) {
+	                // TODO 记录失败直接输出日志,未来可考虑配置化
+	                log.error(ex.getMessage());    
+	            }
+	        }
+	        return result;
+	    }
+	    
+	    
+	    private boolean updateJobExecutionEventWhenSuccess(final JobExecutionEvent jobExecutionEvent) {
+	        boolean result = false;
+	        String sql = "UPDATE " + TABLE_JOB_EXECUTION_LOG + " SET is_success = ?, complete_time = ? WHERE id = ?";
+	        try (
+	                Connection conn = dataSource.getConnection();
+	                PreparedStatement preparedStatement = conn.prepareStatement(sql)) {
+	            preparedStatement.setBoolean(1, jobExecutionEvent.isSuccess());
+	            preparedStatement.setTimestamp(2, new Timestamp(jobExecutionEvent.getCompleteTime().getTime()));
+	            preparedStatement.setString(3, jobExecutionEvent.getId());
+	            if (0 == preparedStatement.executeUpdate()) {
+	                return insertJobExecutionEventWhenSuccess(jobExecutionEvent);
+	            }
+	            result = true;
+	        } catch (final SQLException ex) {
+	            // TODO 记录失败直接输出日志,未来可考虑配置化
+	            log.error(ex.getMessage());
+	        }
+	        return result;
+	    }
+	    
+	    private boolean updateJobExecutionEventFailure(final JobExecutionEvent jobExecutionEvent) {
+	        boolean result = false;
+	        String sql = "UPDATE " + TABLE_JOB_EXECUTION_LOG + " SET is_success = ?, complete_time = ?, failure_cause = ? WHERE id = ?";
+	        try (
+	                Connection conn = dataSource.getConnection();
+	                PreparedStatement preparedStatement = conn.prepareStatement(sql)) {
+	            preparedStatement.setBoolean(1, jobExecutionEvent.isSuccess());
+	            preparedStatement.setTimestamp(2, new Timestamp(jobExecutionEvent.getCompleteTime().getTime()));
+	            preparedStatement.setString(3, truncateString(jobExecutionEvent.getFailureCause()));
+	            preparedStatement.setString(4, jobExecutionEvent.getId());
+	            if (0 == preparedStatement.executeUpdate()) {
+	                return insertJobExecutionEventWhenFailure(jobExecutionEvent);
+	            }
+	            result = true;
+	        } catch (final SQLException ex) {
+	            // TODO 记录失败直接输出日志,未来可考虑配置化
+	            log.error(ex.getMessage());
+	        }
+	        return result;
+	    }
+	    
+	    private boolean insertJobExecutionEventWhenSuccess(final JobExecutionEvent jobExecutionEvent) {
+	        boolean result = false;
+	        String sql = "INSERT INTO " + TABLE_JOB_EXECUTION_LOG + " (id, job_name, task_id, hostname, ip, sharding_item, execution_source, is_success, start_time, complete_time) "
+	                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+	        try (
+	                Connection conn = dataSource.getConnection();
+	                PreparedStatement preparedStatement = conn.prepareStatement(sql)) {
+	            preparedStatement.setString(1, jobExecutionEvent.getId());
+	            preparedStatement.setString(2, jobExecutionEvent.getJobName());
+	            preparedStatement.setString(3, jobExecutionEvent.getTaskId());
+	            preparedStatement.setString(4, jobExecutionEvent.getHostname());
+	            preparedStatement.setString(5, jobExecutionEvent.getIp());
+	            preparedStatement.setInt(6, jobExecutionEvent.getShardingItem());
+	            preparedStatement.setString(7, jobExecutionEvent.getSource().toString());
+	            preparedStatement.setBoolean(8, jobExecutionEvent.isSuccess());
+	            preparedStatement.setTimestamp(9, new Timestamp(jobExecutionEvent.getStartTime().getTime()));
+	            preparedStatement.setTimestamp(10, new Timestamp(jobExecutionEvent.getCompleteTime().getTime()));
+	            preparedStatement.execute();
+	            result = true;
+	        } catch (final SQLException ex) {
+	            if (isDuplicateRecord(ex)) {
+	                return updateJobExecutionEventWhenSuccess(jobExecutionEvent);
+	            }
+	            // TODO 记录失败直接输出日志,未来可考虑配置化
+	            log.error(ex.getMessage());
+	        }
+	        return result;
+	    }
+	    
+	    private boolean insertJobExecutionEventWhenFailure(final JobExecutionEvent jobExecutionEvent) {
+	        boolean result = false;
+	        String sql = "INSERT INTO " + TABLE_JOB_EXECUTION_LOG + " (id, job_name, task_id, hostname, ip, sharding_item, execution_source, failure_cause, is_success, start_time) "
+	                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+	        try (
+	                Connection conn = dataSource.getConnection();
+	                PreparedStatement preparedStatement = conn.prepareStatement(sql)) {
+	            preparedStatement.setString(1, jobExecutionEvent.getId());
+	            preparedStatement.setString(2, jobExecutionEvent.getJobName());
+	            preparedStatement.setString(3, jobExecutionEvent.getTaskId());
+	            preparedStatement.setString(4, jobExecutionEvent.getHostname());
+	            preparedStatement.setString(5, jobExecutionEvent.getIp());
+	            preparedStatement.setInt(6, jobExecutionEvent.getShardingItem());
+	            preparedStatement.setString(7, jobExecutionEvent.getSource().toString());
+	            preparedStatement.setString(8, truncateString(jobExecutionEvent.getFailureCause()));
+	            preparedStatement.setBoolean(9, jobExecutionEvent.isSuccess());
+	            preparedStatement.setTimestamp(10, new Timestamp(jobExecutionEvent.getStartTime().getTime()));
+	            preparedStatement.execute();
+	            result = true;
+	        } catch (final SQLException ex) {
+	            if (isDuplicateRecord(ex)) {
+	                return updateJobExecutionEventFailure(jobExecutionEvent);
+	            }
+	            // TODO 记录失败直接输出日志,未来可考虑配置化
+	            log.error(ex.getMessage());
+	        }
+	        return result;
+	    }
+	    
+	    
+		
+	}
 }

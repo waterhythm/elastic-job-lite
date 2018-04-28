@@ -20,6 +20,7 @@ package io.elasticjob.lite.internal.sharding;
 import io.elasticjob.lite.api.strategy.JobInstance;
 import io.elasticjob.lite.api.strategy.JobShardingStrategy;
 import io.elasticjob.lite.api.strategy.JobShardingStrategyFactory;
+import io.elasticjob.lite.config.JobCoreConfiguration;
 import io.elasticjob.lite.config.LiteJobConfiguration;
 import io.elasticjob.lite.internal.config.ConfigurationService;
 import io.elasticjob.lite.internal.election.LeaderService;
@@ -36,6 +37,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.curator.framework.api.transaction.CuratorTransactionFinal;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
@@ -99,7 +102,7 @@ public final class ShardingService {
      * 如果当前无可用节点则不分片.
      * </p>
      */
-    public void shardingIfNecessary() {
+    public void shardingIfNecessaryOld() {
         List<JobInstance> availableJobInstances = instanceService.getAvailableJobInstances();
         if (!isNeedSharding() || availableJobInstances.isEmpty()) {
             return;
@@ -118,6 +121,84 @@ public final class ShardingService {
         jobNodeStorage.executeInTransaction(new PersistShardingInfoTransactionExecutionCallback(jobShardingStrategy.sharding(availableJobInstances, jobName, shardingTotalCount)));
         log.debug("Job '{}' sharding complete.", jobName);
     }
+    
+    /**
+     * 如果需要分片且当前节点为主节点, 则作业分片.
+     * 
+     * <p>
+     * 如果当前无可用节点则不分片.
+     * </p>
+     */
+    public void shardingIfNecessary() {
+        List<JobInstance> availableJobInstances = instanceService.getAvailableJobInstances();
+        if (!isNeedSharding() || availableJobInstances.isEmpty()) {
+            return;
+        }
+        if (!leaderService.isLeaderUntilBlock()) {
+            blockUntilShardingCompleted();
+            return;
+        }
+        waitingOtherShardingItemCompleted();
+        LiteJobConfiguration liteJobConfig = configService.load(false);
+        int shardingTotalCount = liteJobConfig.getTypeConfig().getCoreConfig().getShardingTotalCount();
+        log.debug("Job '{}' sharding begin.", jobName);
+        jobNodeStorage.fillEphemeralJobNode(ShardingNode.PROCESSING, "");
+//        resetShardingInfo(shardingTotalCount);
+        JobShardingStrategy jobShardingStrategy = JobShardingStrategyFactory.getStrategy(liteJobConfig.getJobShardingStrategyClass());
+        Map<JobInstance, List<Integer>> shardingMap = jobShardingStrategy.sharding(availableJobInstances, jobName, shardingTotalCount); 
+        /**
+         *  Liquid Start: Get dynamic sharding count and sharding item parameters
+         */
+        Class strategyCls = jobShardingStrategy.getClass();
+        try {
+			Method getShardingTotalCountMethod = strategyCls.getDeclaredMethod("getShardingTotalCount");
+			Method getShardingItemParametersMethod = strategyCls.getDeclaredMethod("getShardingItemParameters");
+			int dynamicShardingTotalCount = Integer.valueOf(getShardingTotalCountMethod.invoke(jobShardingStrategy).toString());
+			String dynamicShardingItemParameters = getShardingItemParametersMethod.invoke(jobShardingStrategy).toString();
+			if(dynamicShardingItemParameters.length() > 0 && dynamicShardingTotalCount > 0){
+				updateJobCoreConfiguration(liteJobConfig, dynamicShardingItemParameters, dynamicShardingTotalCount); //update to zookeeper1
+				shardingTotalCount = dynamicShardingTotalCount;
+			}
+			resetShardingInfo(shardingTotalCount);
+	        jobNodeStorage.executeInTransaction(new PersistShardingInfoTransactionExecutionCallback(shardingMap));
+	        setReshardingFlag(); //动态分片需要每次执行；
+	        return;
+		} catch (Exception e) {
+			e.printStackTrace();
+		} 
+        /**
+         *  Liquid End: Get dynamic sharding count and sharding item parameters
+         */
+        resetShardingInfo(shardingTotalCount);
+        jobNodeStorage.executeInTransaction(new PersistShardingInfoTransactionExecutionCallback(shardingMap));
+        log.debug("Job '{}' sharding complete.", jobName);
+    }
+    
+	private JobCoreConfiguration updateJobCoreConfiguration(LiteJobConfiguration liteJobConfig,
+			String newShardingItemParameters, int newShardingTotalCount)
+			throws NoSuchFieldException, SecurityException, IllegalArgumentException, IllegalAccessException {
+    	JobCoreConfiguration jobCoreConfig = liteJobConfig.getTypeConfig().getCoreConfig();
+    	// TODO update sharding item parameters and sharding total count
+    	Field shardingTotalCountField = jobCoreConfig.getClass().getDeclaredField("shardingTotalCount");
+    	shardingTotalCountField.setAccessible(true);
+    	int shardingTotalCountValue = shardingTotalCountField.getInt(jobCoreConfig);
+    	System.out.println(shardingTotalCountValue);
+    	shardingTotalCountField.setInt(jobCoreConfig, newShardingTotalCount);
+    	shardingTotalCountValue = shardingTotalCountField.getInt(jobCoreConfig);
+    	System.out.println(shardingTotalCountValue);
+    	
+    	Field shardingItemParametersField = jobCoreConfig.getClass().getDeclaredField("shardingItemParameters");
+    	shardingItemParametersField.setAccessible(true);
+    	String shardingItemParametersValue = shardingItemParametersField.get(jobCoreConfig).toString();
+    	System.out.println(shardingItemParametersValue);
+    	shardingItemParametersField.set(jobCoreConfig, newShardingItemParameters);
+    	shardingItemParametersValue = shardingItemParametersField.get(jobCoreConfig).toString();
+    	System.out.println(shardingItemParametersValue);
+    	
+    	configService.persistForce(liteJobConfig);
+    	return jobCoreConfig;
+    }
+    
     
     private void blockUntilShardingCompleted() {
         while (!leaderService.isLeaderUntilBlock() && (jobNodeStorage.isJobNodeExisted(ShardingNode.NECESSARY) || jobNodeStorage.isJobNodeExisted(ShardingNode.PROCESSING))) {

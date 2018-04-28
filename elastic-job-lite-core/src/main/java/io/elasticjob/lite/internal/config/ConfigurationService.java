@@ -73,6 +73,17 @@ public final class ConfigurationService {
         }
     }
     
+    /**
+     * 强制持久化分布式作业配置信息.
+     * 
+     * @param liteJobConfig 作业配置
+     */
+    public void persistForce(final LiteJobConfiguration liteJobConfig) {
+        checkConflictJob(liteJobConfig);
+            jobNodeStorage.replaceJobNode(ConfigurationNode.ROOT, LiteJobConfigurationGsonFactory.toJson(liteJobConfig));
+    }
+
+    
     private void checkConflictJob(final LiteJobConfiguration liteJobConfig) {
         Optional<LiteJobConfiguration> liteJobConfigFromZk = find();
         if (liteJobConfigFromZk.isPresent() && !liteJobConfigFromZk.get().getTypeConfig().getJobClass().equals(liteJobConfig.getTypeConfig().getJobClass())) {
