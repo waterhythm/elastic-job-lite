@@ -351,7 +351,7 @@ public final class JobEventRdbSearch {
             String whereSql = buildWhere(tableName, tableFields, condition);
             String orderSql = buildOrder(tableFields, condition.getSort(), condition.getOrder());
             String limitSql = buildLimit(condition.getPage(), condition.getPerPage());
-            sqlBuilder.append(selectSql).append(whereSql).append(orderSql).append(limitSql);
+            sqlBuilder.append("select * from ( ").append(selectSql).append(whereSql).append(orderSql).append(limitSql);
             return sqlBuilder.toString();
         }
         
@@ -373,7 +373,8 @@ public final class JobEventRdbSearch {
             for (String each : tableFields) {
                 sqlBuilder.append(each).append(",");
             }
-            sqlBuilder.deleteCharAt(sqlBuilder.length() - 1);
+//            sqlBuilder.deleteCharAt(sqlBuilder.length() - 1);
+            sqlBuilder.append("ROWNUM rn");
             sqlBuilder.append(" FROM ").append(tableName);
             return sqlBuilder.toString();
         }
@@ -434,9 +435,9 @@ public final class JobEventRdbSearch {
         private String buildLimit(final int page, final int perPage) {
             StringBuilder sqlBuilder = new StringBuilder();
             if (page > 0 && perPage > 0) {
-                sqlBuilder.append(" AND ROWNUM > ").append((page - 1) * perPage).append("  AND ROWNUM <  ").append(page * perPage);
+                sqlBuilder.append("  AND ROWNUM <  ").append(page * perPage).append(") where rn > ").append((page - 1) * perPage);
             } else {
-                sqlBuilder.append("  AND ROWNUM <  ").append(Condition.DEFAULT_PAGE_SIZE);
+                sqlBuilder.append("  AND ROWNUM <  ").append(Condition.DEFAULT_PAGE_SIZE).append(")");
             }
             return sqlBuilder.toString();
         }
