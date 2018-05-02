@@ -159,7 +159,7 @@ public final class JobEventRdbSearch {
     	if(DatabaseType.Oracle.equals(databaseType)){
     		// TODO Oracle Data Type
     		OracleSearch oracleSearch = new OracleSearch();
-    		oracleSearch.buildDataSql(tableName, tableFields, condition);
+    		sql = oracleSearch.buildDataSql(tableName, tableFields, condition);
     	}else{
     		sql = buildDataSql(tableName, tableFields, condition);
     	}
@@ -185,7 +185,7 @@ public final class JobEventRdbSearch {
     	if(DatabaseType.Oracle.equals(databaseType)){
     		// TODO Oracle Data Type
     		OracleSearch oracleSearch = new OracleSearch();
-    		oracleSearch.buildCountSql(tableName, tableFields, condition);
+    		sql = oracleSearch.buildCountSql(tableName, tableFields, condition);
     	}else{
     		sql = buildCountSql(tableName, tableFields, condition);
     	}
