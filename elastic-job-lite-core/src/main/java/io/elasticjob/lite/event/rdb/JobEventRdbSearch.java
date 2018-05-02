@@ -62,6 +62,8 @@ public final class JobEventRdbSearch {
             Lists.newArrayList("id", "job_name", "original_task_id", "task_id", "slave_id", "source", "execution_type", "sharding_item", "state", "message", "creation_time");
     
     private final DataSource dataSource;
+
+	private DatabaseType databaseType;
     
     /**
      * 检索作业运行执行轨迹.
@@ -141,15 +143,52 @@ public final class JobEventRdbSearch {
         return result;
     }
     
+    
+    /**
+     * 变更
+     * @param conn
+     * @param tableName
+     * @param tableFields
+     * @param condition
+     * @return
+     * @throws SQLException
+     */
     private PreparedStatement createDataPreparedStatement(final Connection conn, final String tableName, final Collection<String> tableFields, final Condition condition) throws SQLException {
-        String sql = buildDataSql(tableName, tableFields, condition);
+    	databaseType = DatabaseType.valueFrom(conn.getMetaData().getDatabaseProductName());
+    	String sql = "";
+    	if(DatabaseType.Oracle.equals(databaseType)){
+    		// TODO Oracle Data Type
+    		OracleSearch oracleSearch = new OracleSearch();
+    		oracleSearch.buildDataSql(tableName, tableFields, condition);
+    	}else{
+    		sql = buildDataSql(tableName, tableFields, condition);
+    	}
+    			
         PreparedStatement preparedStatement = conn.prepareStatement(sql);
         setBindValue(preparedStatement, tableFields, condition);
         return preparedStatement;
     }
     
+    
+    /**
+     * 变更
+     * @param conn
+     * @param tableName
+     * @param tableFields
+     * @param condition
+     * @return
+     * @throws SQLException
+     */
     private PreparedStatement createCountPreparedStatement(final Connection conn, final String tableName, final Collection<String> tableFields, final Condition condition) throws SQLException {
-        String sql = buildCountSql(tableName, tableFields, condition);
+    	databaseType = DatabaseType.valueFrom(conn.getMetaData().getDatabaseProductName());
+    	String sql = "";
+    	if(DatabaseType.Oracle.equals(databaseType)){
+    		// TODO Oracle Data Type
+    		OracleSearch oracleSearch = new OracleSearch();
+    		oracleSearch.buildCountSql(tableName, tableFields, condition);
+    	}else{
+    		sql = buildCountSql(tableName, tableFields, condition);
+    	}
         PreparedStatement preparedStatement = conn.prepareStatement(sql);
         setBindValue(preparedStatement, tableFields, condition);
         return preparedStatement;
@@ -303,4 +342,109 @@ public final class JobEventRdbSearch {
         
         private final List<T> rows;
     }
+    
+    final class OracleSearch{
+    	
+        private String buildDataSql(final String tableName, final Collection<String> tableFields, final Condition condition) {
+            StringBuilder sqlBuilder = new StringBuilder();
+            String selectSql = buildSelect(tableName, tableFields);
+            String whereSql = buildWhere(tableName, tableFields, condition);
+            String orderSql = buildOrder(tableFields, condition.getSort(), condition.getOrder());
+            String limitSql = buildLimit(condition.getPage(), condition.getPerPage());
+            sqlBuilder.append(selectSql).append(whereSql).append(orderSql).append(limitSql);
+            return sqlBuilder.toString();
+        }
+        
+        private String buildCountSql(final String tableName, final Collection<String> tableFields, final Condition condition) {
+            StringBuilder sqlBuilder = new StringBuilder();
+            String selectSql = buildSelectCount(tableName);
+            String whereSql = buildWhere(tableName, tableFields, condition);
+            sqlBuilder.append(selectSql).append(whereSql);
+            return sqlBuilder.toString();
+        }
+        
+        private String buildSelectCount(final String tableName) {
+            return String.format("SELECT COUNT(1) FROM %s", tableName);
+        }
+        
+        private String buildSelect(final String tableName, final Collection<String> tableFields) {
+            StringBuilder sqlBuilder = new StringBuilder();
+            sqlBuilder.append("SELECT ");
+            for (String each : tableFields) {
+                sqlBuilder.append(each).append(",");
+            }
+            sqlBuilder.deleteCharAt(sqlBuilder.length() - 1);
+            sqlBuilder.append(" FROM ").append(tableName);
+            return sqlBuilder.toString();
+        }
+        
+        private String buildWhere(final String tableName, final Collection<String> tableFields, final Condition condition) {
+            StringBuilder sqlBuilder = new StringBuilder();
+            sqlBuilder.append(" WHERE 1=1");
+            if (null != condition.getFields() && !condition.getFields().isEmpty()) {
+                for (Map.Entry<String, Object> entry : condition.getFields().entrySet()) {
+                    String lowerUnderscore = CaseFormat.LOWER_CAMEL.to(CaseFormat.LOWER_UNDERSCORE, entry.getKey());
+                    if (null != entry.getValue() && tableFields.contains(lowerUnderscore)) {
+                        sqlBuilder.append(" AND ").append(lowerUnderscore).append("=?");
+                    }
+                }
+            }
+            if (null != condition.getStartTime()) {
+                sqlBuilder.append(" AND ").append(getTableTimeField(tableName)).append(">=?");
+            }
+            if (null != condition.getEndTime()) {
+                sqlBuilder.append(" AND ").append(getTableTimeField(tableName)).append("<=?");
+            }
+            return sqlBuilder.toString();
+        }
+        
+        private String getTableTimeField(final String tableName) {
+            String result = "";
+            if (TABLE_JOB_EXECUTION_LOG.equals(tableName)) {
+                result = "start_time";
+            } else if (TABLE_JOB_STATUS_TRACE_LOG.equals(tableName)) {
+                result = "creation_time";
+            }
+            return result;
+        }
+        
+        private String buildOrder(final Collection<String> tableFields, final String sortName, final String sortOrder) {
+            if (Strings.isNullOrEmpty(sortName)) {
+                return "";
+            }
+            String lowerUnderscore = CaseFormat.LOWER_CAMEL.to(CaseFormat.LOWER_UNDERSCORE, sortName);
+            if (!tableFields.contains(lowerUnderscore)) {
+                return "";
+            }
+            StringBuilder sqlBuilder = new StringBuilder();
+            sqlBuilder.append(" ORDER BY ").append(lowerUnderscore);
+            switch (sortOrder.toUpperCase()) {
+                case "ASC":
+                    sqlBuilder.append(" ASC");
+                    break;
+                case "DESC":
+                    sqlBuilder.append(" DESC");
+                    break;
+                default :
+                    sqlBuilder.append(" ASC");
+            }
+            return sqlBuilder.toString();
+        }
+        
+        private String buildLimit(final int page, final int perPage) {
+            StringBuilder sqlBuilder = new StringBuilder();
+            if (page > 0 && perPage > 0) {
+                sqlBuilder.append(" LIMIT ").append((page - 1) * perPage).append(",").append(perPage);
+            } else {
+                sqlBuilder.append(" LIMIT ").append(Condition.DEFAULT_PAGE_SIZE);
+            }
+            if (page > 0 && perPage > 0) {
+                sqlBuilder.append(" AND ROWNUM > ").append((page - 1) * perPage).append("  AND ROWNUM <  ").append(page * perPage);
+            } else {
+                sqlBuilder.append("  AND ROWNUM <  ").append(Condition.DEFAULT_PAGE_SIZE);
+            }
+            return sqlBuilder.toString();
+        }
+    }
+    
 }

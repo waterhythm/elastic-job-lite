@@ -339,7 +339,7 @@ final class JobEventRdbStorage {
         String sql = "";
         if(DatabaseType.Oracle.equals(databaseType)){
         	sql = "INSERT INTO " + TABLE_JOB_STATUS_TRACE_LOG + " (id, job_name, original_task_id, task_id, slave_id, source, execution_type, sharding_item,  " 
-                    + "state, message, creation_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
+                    + "state, message, creation_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         }else{
         	sql = "INSERT INTO `" + TABLE_JOB_STATUS_TRACE_LOG + "` (`id`, `job_name`, `original_task_id`, `task_id`, `slave_id`, `source`, `execution_type`, `sharding_item`,  " 
                 + "`state`, `message`, `creation_time`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
