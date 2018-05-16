@@ -75,15 +75,24 @@ final class JobEventRdbStorage {
         	this.TABLE_JOB_EXECUTION_LOG = this.targetSchema + '.' + BASE_TABLE_JOB_EXECUTION_LOG;
         	this.TABLE_JOB_STATUS_TRACE_LOG = this.targetSchema + '.' + BASE_TABLE_JOB_STATUS_TRACE_LOG;
         }
+        initConnection();
 //        initTablesAndIndexes();
+    }
+    
+    private void initConnection(){
+    	try {
+			Connection conn = dataSource.getConnection();
+			databaseType = DatabaseType.valueFrom(conn.getMetaData().getDatabaseProductName());
+		} catch (SQLException e) {
+			e.printStackTrace();
+		}
     }
     
     /**
      * LEVEL 1
      * @throws SQLException
      */
-    @SuppressWarnings("unused")
-	void initTablesAndIndexes() throws SQLException {
+    void initTablesAndIndexes() throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
         	databaseType = DatabaseType.valueFrom(conn.getMetaData().getDatabaseProductName());
             if(DatabaseType.Oracle.equals(databaseType)){
@@ -356,7 +365,7 @@ final class JobEventRdbStorage {
         boolean result = false;
         String sql = "";
         if(DatabaseType.Oracle.equals(databaseType)){
-        	sql = "INSERT INTO " + BASE_TABLE_JOB_STATUS_TRACE_LOG + " (id, job_name, original_task_id, task_id, slave_id, source, execution_type, sharding_item,  " 
+        	sql = "INSERT INTO " + TABLE_JOB_STATUS_TRACE_LOG + " (id, job_name, original_task_id, task_id, slave_id, source, execution_type, sharding_item,  " 
                     + "state, message, creation_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         }else{
         	sql = "INSERT INTO `" + BASE_TABLE_JOB_STATUS_TRACE_LOG + "` (`id`, `job_name`, `original_task_id`, `task_id`, `slave_id`, `source`, `execution_type`, `sharding_item`,  " 
@@ -388,7 +397,7 @@ final class JobEventRdbStorage {
     private String getOriginalTaskId(final String taskId) {
         String sql = "";
         if(DatabaseType.Oracle.equals(databaseType)){
-        	sql = String.format("SELECT original_task_id FROM %s WHERE task_id = '%s' and state='%s' and rownum = 1", BASE_TABLE_JOB_STATUS_TRACE_LOG, taskId, State.TASK_STAGING);
+        	sql = String.format("SELECT original_task_id FROM %s WHERE task_id = '%s' and state='%s' and rownum = 1", TABLE_JOB_STATUS_TRACE_LOG, taskId, State.TASK_STAGING);
         }else{
         	sql = String.format("SELECT original_task_id FROM %s WHERE task_id = '%s' and state='%s' LIMIT 1", BASE_TABLE_JOB_STATUS_TRACE_LOG, taskId, State.TASK_STAGING);
         }
