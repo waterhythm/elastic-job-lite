@@ -26,6 +26,9 @@ import io.elasticjob.lite.event.type.JobStatusTraceEvent;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.sql.DataSource;
+
+import org.apache.commons.lang3.StringUtils;
+
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
@@ -46,9 +49,9 @@ import java.util.UUID;
 @Slf4j
 final class JobEventRdbStorage {
     
-    private static final String TABLE_JOB_EXECUTION_LOG = "JOB_EXECUTION_LOG";
+    private static final String BASE_TABLE_JOB_EXECUTION_LOG = "JOB_EXECUTION_LOG";
     
-    private static final String TABLE_JOB_STATUS_TRACE_LOG = "JOB_STATUS_TRACE_LOG";
+    private static final String BASE_TABLE_JOB_STATUS_TRACE_LOG = "JOB_STATUS_TRACE_LOG";
     
     private static final String TASK_ID_STATE_INDEX = "TASK_ID_STATE_INDEX";
     
@@ -56,16 +59,31 @@ final class JobEventRdbStorage {
     
     private DatabaseType databaseType;
     
-    JobEventRdbStorage(final DataSource dataSource) throws SQLException {
+    private final String targetSchema;
+    
+    private final String TABLE_JOB_EXECUTION_LOG;
+    
+    private final String TABLE_JOB_STATUS_TRACE_LOG;
+    
+    JobEventRdbStorage(final DataSource dataSource, final String targetSchema) throws SQLException {
         this.dataSource = dataSource;
-        initTablesAndIndexes();
+        this.targetSchema = StringUtils.isBlank(targetSchema)?null:targetSchema;
+        if(StringUtils.isBlank(targetSchema)){
+        	this.TABLE_JOB_EXECUTION_LOG = BASE_TABLE_JOB_EXECUTION_LOG;
+        	this.TABLE_JOB_STATUS_TRACE_LOG = BASE_TABLE_JOB_STATUS_TRACE_LOG;
+        }else{
+        	this.TABLE_JOB_EXECUTION_LOG = this.targetSchema + '.' + BASE_TABLE_JOB_EXECUTION_LOG;
+        	this.TABLE_JOB_STATUS_TRACE_LOG = this.targetSchema + '.' + BASE_TABLE_JOB_STATUS_TRACE_LOG;
+        }
+//        initTablesAndIndexes();
     }
     
     /**
      * LEVEL 1
      * @throws SQLException
      */
-    private void initTablesAndIndexes() throws SQLException {
+    @SuppressWarnings("unused")
+	void initTablesAndIndexes() throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
         	databaseType = DatabaseType.valueFrom(conn.getMetaData().getDatabaseProductName());
             if(DatabaseType.Oracle.equals(databaseType)){
@@ -84,7 +102,7 @@ final class JobEventRdbStorage {
     
     private void createJobExecutionTableAndIndexIfNeeded(final Connection conn) throws SQLException {
         DatabaseMetaData dbMetaData = conn.getMetaData();
-        try (ResultSet resultSet = dbMetaData.getTables(null, null, TABLE_JOB_EXECUTION_LOG, new String[]{"TABLE"})) {
+        try (ResultSet resultSet = dbMetaData.getTables(null, null, BASE_TABLE_JOB_EXECUTION_LOG, new String[]{"TABLE"})) {
             if (!resultSet.next()) {
                 createJobExecutionTable(conn);
             }
@@ -93,12 +111,12 @@ final class JobEventRdbStorage {
     
     private void createJobStatusTraceTableAndIndexIfNeeded(final Connection conn) throws SQLException {
         DatabaseMetaData dbMetaData = conn.getMetaData();
-        try (ResultSet resultSet = dbMetaData.getTables(null, null, TABLE_JOB_STATUS_TRACE_LOG, new String[]{"TABLE"})) {
+        try (ResultSet resultSet = dbMetaData.getTables(null, null, BASE_TABLE_JOB_STATUS_TRACE_LOG, new String[]{"TABLE"})) {
             if (!resultSet.next()) {
                 createJobStatusTraceTable(conn);
             }
         }
-        createTaskIdIndexIfNeeded(conn, TABLE_JOB_STATUS_TRACE_LOG, TASK_ID_STATE_INDEX);
+        createTaskIdIndexIfNeeded(conn, BASE_TABLE_JOB_STATUS_TRACE_LOG, TASK_ID_STATE_INDEX);
     }
     
     private void createTaskIdIndexIfNeeded(final Connection conn, final String tableName, final String indexName) throws SQLException {
@@ -111,7 +129,7 @@ final class JobEventRdbStorage {
                 }
             }
             if (!hasTaskIdIndex) {
-                createTaskIdAndStateIndex(conn, tableName);
+            	createTaskIdAndStateIndex(conn, tableName);
             }
         }
     }
@@ -194,7 +212,7 @@ final class JobEventRdbStorage {
     
     private boolean insertJobExecutionEvent(final JobExecutionEvent jobExecutionEvent) {
         boolean result = false;
-        String sql = "INSERT INTO `" + TABLE_JOB_EXECUTION_LOG + "` (`id`, `job_name`, `task_id`, `hostname`, `ip`, `sharding_item`, `execution_source`, `is_success`, `start_time`) "
+        String sql = "INSERT INTO `" + BASE_TABLE_JOB_EXECUTION_LOG + "` (`id`, `job_name`, `task_id`, `hostname`, `ip`, `sharding_item`, `execution_source`, `is_success`, `start_time`) "
                 + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);";
         try (
                 Connection conn = dataSource.getConnection();
@@ -227,7 +245,7 @@ final class JobEventRdbStorage {
     
     private boolean updateJobExecutionEventWhenSuccess(final JobExecutionEvent jobExecutionEvent) {
         boolean result = false;
-        String sql = "UPDATE `" + TABLE_JOB_EXECUTION_LOG + "` SET `is_success` = ?, `complete_time` = ? WHERE id = ?";
+        String sql = "UPDATE `" + BASE_TABLE_JOB_EXECUTION_LOG + "` SET `is_success` = ?, `complete_time` = ? WHERE id = ?";
         try (
                 Connection conn = dataSource.getConnection();
                 PreparedStatement preparedStatement = conn.prepareStatement(sql)) {
@@ -247,7 +265,7 @@ final class JobEventRdbStorage {
     
     private boolean insertJobExecutionEventWhenSuccess(final JobExecutionEvent jobExecutionEvent) {
         boolean result = false;
-        String sql = "INSERT INTO `" + TABLE_JOB_EXECUTION_LOG + "` (`id`, `job_name`, `task_id`, `hostname`, `ip`, `sharding_item`, `execution_source`, `is_success`, `start_time`, `complete_time`) "
+        String sql = "INSERT INTO `" + BASE_TABLE_JOB_EXECUTION_LOG + "` (`id`, `job_name`, `task_id`, `hostname`, `ip`, `sharding_item`, `execution_source`, `is_success`, `start_time`, `complete_time`) "
                 + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
         try (
                 Connection conn = dataSource.getConnection();
@@ -276,7 +294,7 @@ final class JobEventRdbStorage {
     
     private boolean updateJobExecutionEventFailure(final JobExecutionEvent jobExecutionEvent) {
         boolean result = false;
-        String sql = "UPDATE `" + TABLE_JOB_EXECUTION_LOG + "` SET `is_success` = ?, `complete_time` = ?, `failure_cause` = ? WHERE id = ?";
+        String sql = "UPDATE `" + BASE_TABLE_JOB_EXECUTION_LOG + "` SET `is_success` = ?, `complete_time` = ?, `failure_cause` = ? WHERE id = ?";
         try (
                 Connection conn = dataSource.getConnection();
                 PreparedStatement preparedStatement = conn.prepareStatement(sql)) {
@@ -297,7 +315,7 @@ final class JobEventRdbStorage {
     
     private boolean insertJobExecutionEventWhenFailure(final JobExecutionEvent jobExecutionEvent) {
         boolean result = false;
-        String sql = "INSERT INTO `" + TABLE_JOB_EXECUTION_LOG + "` (`id`, `job_name`, `task_id`, `hostname`, `ip`, `sharding_item`, `execution_source`, `failure_cause`, `is_success`, `start_time`) "
+        String sql = "INSERT INTO `" + BASE_TABLE_JOB_EXECUTION_LOG + "` (`id`, `job_name`, `task_id`, `hostname`, `ip`, `sharding_item`, `execution_source`, `failure_cause`, `is_success`, `start_time`) "
                 + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
         try (
                 Connection conn = dataSource.getConnection();
@@ -338,10 +356,10 @@ final class JobEventRdbStorage {
         boolean result = false;
         String sql = "";
         if(DatabaseType.Oracle.equals(databaseType)){
-        	sql = "INSERT INTO " + TABLE_JOB_STATUS_TRACE_LOG + " (id, job_name, original_task_id, task_id, slave_id, source, execution_type, sharding_item,  " 
+        	sql = "INSERT INTO " + BASE_TABLE_JOB_STATUS_TRACE_LOG + " (id, job_name, original_task_id, task_id, slave_id, source, execution_type, sharding_item,  " 
                     + "state, message, creation_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         }else{
-        	sql = "INSERT INTO `" + TABLE_JOB_STATUS_TRACE_LOG + "` (`id`, `job_name`, `original_task_id`, `task_id`, `slave_id`, `source`, `execution_type`, `sharding_item`,  " 
+        	sql = "INSERT INTO `" + BASE_TABLE_JOB_STATUS_TRACE_LOG + "` (`id`, `job_name`, `original_task_id`, `task_id`, `slave_id`, `source`, `execution_type`, `sharding_item`,  " 
                 + "`state`, `message`, `creation_time`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
         }
         try (
@@ -370,9 +388,9 @@ final class JobEventRdbStorage {
     private String getOriginalTaskId(final String taskId) {
         String sql = "";
         if(DatabaseType.Oracle.equals(databaseType)){
-        	sql = String.format("SELECT original_task_id FROM %s WHERE task_id = '%s' and state='%s' and rownum = 1", TABLE_JOB_STATUS_TRACE_LOG, taskId, State.TASK_STAGING);
+        	sql = String.format("SELECT original_task_id FROM %s WHERE task_id = '%s' and state='%s' and rownum = 1", BASE_TABLE_JOB_STATUS_TRACE_LOG, taskId, State.TASK_STAGING);
         }else{
-        	sql = String.format("SELECT original_task_id FROM %s WHERE task_id = '%s' and state='%s' LIMIT 1", TABLE_JOB_STATUS_TRACE_LOG, taskId, State.TASK_STAGING);
+        	sql = String.format("SELECT original_task_id FROM %s WHERE task_id = '%s' and state='%s' LIMIT 1", BASE_TABLE_JOB_STATUS_TRACE_LOG, taskId, State.TASK_STAGING);
         }
         String result = "";
         try (
@@ -395,7 +413,7 @@ final class JobEventRdbStorage {
     }
     
     List<JobStatusTraceEvent> getJobStatusTraceEvents(final String taskId) {
-        String sql = String.format("SELECT * FROM %s WHERE task_id = '%s'", TABLE_JOB_STATUS_TRACE_LOG, taskId);
+        String sql = String.format("SELECT * FROM %s WHERE task_id = '%s'", BASE_TABLE_JOB_STATUS_TRACE_LOG, taskId);
         List<JobStatusTraceEvent> result = new ArrayList<>();
         try (
                 Connection conn = dataSource.getConnection();
@@ -431,7 +449,7 @@ final class JobEventRdbStorage {
 
 		private void createJobExecutionTableAndIndexIfNeeded(final Connection conn) throws SQLException {
 	        DatabaseMetaData dbMetaData = conn.getMetaData();
-	        try (ResultSet resultSet = dbMetaData.getTables(null, null, TABLE_JOB_EXECUTION_LOG, new String[]{"TABLE"})) {
+	        try (ResultSet resultSet = dbMetaData.getTables(null, targetSchema, BASE_TABLE_JOB_EXECUTION_LOG, new String[]{"TABLE"})) {
 	            if (!resultSet.next()) {
 	                createJobExecutionTable(conn);
 	            }
@@ -458,12 +476,12 @@ final class JobEventRdbStorage {
 
 		private void createJobStatusTraceTableAndIndexIfNeeded(final Connection conn) throws SQLException {
 	        DatabaseMetaData dbMetaData = conn.getMetaData();
-	        try (ResultSet resultSet = dbMetaData.getTables(null, null, TABLE_JOB_STATUS_TRACE_LOG, new String[]{"TABLE"})) {
+	        try (ResultSet resultSet = dbMetaData.getTables(null, targetSchema, BASE_TABLE_JOB_STATUS_TRACE_LOG, new String[]{"TABLE"})) {
 	            if (!resultSet.next()) {
 	                createJobStatusTraceTable(conn);
 	            }
 	        }
-	        createTaskIdIndexIfNeeded(conn, TABLE_JOB_STATUS_TRACE_LOG, TASK_ID_STATE_INDEX);
+	        createTaskIdIndexIfNeeded(conn, BASE_TABLE_JOB_STATUS_TRACE_LOG, TASK_ID_STATE_INDEX);
 	    }
 		
 	    private void createJobStatusTraceTable(final Connection conn) throws SQLException {
@@ -486,7 +504,7 @@ final class JobEventRdbStorage {
 	    
 	    private void createTaskIdIndexIfNeeded(final Connection conn, final String tableName, final String indexName) throws SQLException {
 	        DatabaseMetaData dbMetaData = conn.getMetaData();
-	        try (ResultSet resultSet = dbMetaData.getIndexInfo(null, null, tableName, false, false)) {
+	        try (ResultSet resultSet = dbMetaData.getIndexInfo(null, targetSchema, tableName, false, false)) {
 	            boolean hasTaskIdIndex = false;
 	            while (resultSet.next()) {
 	                if (indexName.equals(resultSet.getString("INDEX_NAME"))) {
@@ -494,7 +512,11 @@ final class JobEventRdbStorage {
 	                }
 	            }
 	            if (!hasTaskIdIndex) {
-	                createTaskIdAndStateIndex(conn, tableName);
+	            	if(targetSchema == null){
+		                createTaskIdAndStateIndex(conn, tableName);
+	            	}else{
+		                createTaskIdAndStateIndex(conn, targetSchema + "." + tableName);
+	            	}
 	            }
 	        }
 	    }

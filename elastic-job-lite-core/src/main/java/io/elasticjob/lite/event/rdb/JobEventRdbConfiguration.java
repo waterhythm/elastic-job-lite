@@ -22,6 +22,7 @@ import io.elasticjob.lite.event.JobEventListener;
 import io.elasticjob.lite.event.JobEventListenerConfigurationException;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import lombok.Setter;
 
 import javax.sql.DataSource;
 import java.io.Serializable;
@@ -40,10 +41,13 @@ public final class JobEventRdbConfiguration extends JobEventRdbIdentity implemen
     
     private final transient DataSource dataSource;
     
+    @Setter
+    private String targetSchema = "";
+    
     @Override
     public JobEventListener createJobEventListener() throws JobEventListenerConfigurationException {
         try {
-            return new JobEventRdbListener(dataSource);
+            return new JobEventRdbListener(dataSource, targetSchema);
         } catch (final SQLException ex) {
             throw new JobEventListenerConfigurationException(ex);
         }

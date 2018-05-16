@@ -31,6 +31,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.sql.DataSource;
+
+import org.apache.commons.lang3.StringUtils;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -64,6 +67,8 @@ public final class JobEventRdbSearch {
     private final DataSource dataSource;
 
 	private DatabaseType databaseType;
+	
+    private final String targetSchema;
     
     /**
      * 检索作业运行执行轨迹.
@@ -159,7 +164,11 @@ public final class JobEventRdbSearch {
     	if(DatabaseType.Oracle.equals(databaseType)){
     		// TODO Oracle Data Type
     		OracleSearch oracleSearch = new OracleSearch();
-    		sql = oracleSearch.buildDataSql(tableName, tableFields, condition);
+    		String oracleTableName = tableName;
+    		if(!StringUtils.isBlank(targetSchema)){
+    			oracleTableName = targetSchema + "." + tableName;
+    		}
+    		sql = oracleSearch.buildDataSql(oracleTableName, tableFields, condition);
     	}else{
     		sql = buildDataSql(tableName, tableFields, condition);
     	}
@@ -185,7 +194,11 @@ public final class JobEventRdbSearch {
     	if(DatabaseType.Oracle.equals(databaseType)){
     		// TODO Oracle Data Type
     		OracleSearch oracleSearch = new OracleSearch();
-    		sql = oracleSearch.buildCountSql(tableName, tableFields, condition);
+    		String oracleTableName = tableName;
+    		if(!StringUtils.isBlank(targetSchema)){
+    			oracleTableName = targetSchema + "." + tableName;
+    		}
+    		sql = oracleSearch.buildCountSql(oracleTableName, tableFields, condition);
     	}else{
     		sql = buildCountSql(tableName, tableFields, condition);
     	}

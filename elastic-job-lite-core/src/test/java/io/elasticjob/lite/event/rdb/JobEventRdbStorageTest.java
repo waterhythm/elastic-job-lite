@@ -46,7 +46,8 @@ public class JobEventRdbStorageTest {
         dataSource.setUrl("jdbc:h2:mem:job_event_storage");
         dataSource.setUsername("sa");
         dataSource.setPassword("");
-        storage = new JobEventRdbStorage(dataSource);
+        storage = new JobEventRdbStorage(dataSource, "");
+        storage.initTablesAndIndexes();
     }
     
     @Test

@@ -33,8 +33,8 @@ public final class JobEventRdbListener extends JobEventRdbIdentity implements Jo
     
     private final JobEventRdbStorage repository;
     
-    public JobEventRdbListener(final DataSource dataSource) throws SQLException {
-        repository = new JobEventRdbStorage(dataSource);
+    public JobEventRdbListener(final DataSource dataSource, String targetSchema) throws SQLException {
+        repository = new JobEventRdbStorage(dataSource, targetSchema);
     }
     
     @Override

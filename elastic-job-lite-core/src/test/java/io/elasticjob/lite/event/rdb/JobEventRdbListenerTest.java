@@ -58,7 +58,7 @@ public final class JobEventRdbListenerTest {
         dataSource.setUrl("jdbc:h2:mem:job_event_storage");
         dataSource.setUsername("sa");
         dataSource.setPassword("");
-        JobEventRdbListener jobEventRdbListener = new JobEventRdbListener(dataSource);
+        JobEventRdbListener jobEventRdbListener = new JobEventRdbListener(dataSource, "");
         ReflectionUtils.setFieldValue(jobEventRdbListener, "repository", repository);
         when(jobEventRdbConfiguration.createJobEventListener()).thenReturn(jobEventRdbListener);
         jobEventBus = new JobEventBus(jobEventRdbConfiguration);

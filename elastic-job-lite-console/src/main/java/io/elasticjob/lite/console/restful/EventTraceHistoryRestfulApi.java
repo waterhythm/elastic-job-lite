@@ -69,7 +69,11 @@ public final class EventTraceHistoryRestfulApi {
         if (!eventTraceDataSourceConfigurationService.loadActivated().isPresent()) {
             return new JobEventRdbSearch.Result<>(0, new ArrayList<JobExecutionEvent>());
         }
-        JobEventRdbSearch jobEventRdbSearch = new JobEventRdbSearch(setUpEventTraceDataSource());
+        String schemaSeq = "schema";
+        String[] params = {schemaSeq};
+        Map<String, Object> map = this.getQueryParameters(uriInfo, params);
+        Object schemaVaule = map.get(schemaSeq);
+        JobEventRdbSearch jobEventRdbSearch = new JobEventRdbSearch(setUpEventTraceDataSource(), String.valueOf(schemaVaule));
         return jobEventRdbSearch.findJobExecutionEvents(buildCondition(uriInfo, new String[]{"jobName", "ip", "isSuccess"}));
     }
     
@@ -88,7 +92,11 @@ public final class EventTraceHistoryRestfulApi {
         if (!eventTraceDataSourceConfigurationService.loadActivated().isPresent()) {
             return new JobEventRdbSearch.Result<>(0, new ArrayList<JobStatusTraceEvent>());
         }
-        JobEventRdbSearch jobEventRdbSearch = new JobEventRdbSearch(setUpEventTraceDataSource());
+        String schemaSeq = "schema";
+        String[] params = {schemaSeq};
+        Map<String, Object> map = this.getQueryParameters(uriInfo, params);
+        Object schemaVaule = map.get(schemaSeq);
+        JobEventRdbSearch jobEventRdbSearch = new JobEventRdbSearch(setUpEventTraceDataSource(), String.valueOf(schemaVaule));
         return jobEventRdbSearch.findJobStatusTraceEvents(buildCondition(uriInfo, new String[]{"jobName", "source", "executionType", "state"}));
     }
     

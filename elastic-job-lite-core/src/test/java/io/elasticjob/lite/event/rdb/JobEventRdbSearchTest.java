@@ -47,8 +47,9 @@ public class JobEventRdbSearchTest {
         dataSource.setUrl("jdbc:h2:mem:");
         dataSource.setUsername("sa");
         dataSource.setPassword("");
-        storage = new JobEventRdbStorage(dataSource);
-        repository = new JobEventRdbSearch(dataSource);
+        storage = new JobEventRdbStorage(dataSource, "");
+        repository = new JobEventRdbSearch(dataSource, "");
+        storage.initTablesAndIndexes();
         initStorage();
     }
     
