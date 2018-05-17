@@ -280,9 +280,11 @@ public final class JobEventRdbSearch {
     
     private String getTableTimeField(final String tableName) {
         String result = "";
-        if (TABLE_JOB_EXECUTION_LOG.equals(tableName)) {
+        String[] tableNameSlieces = tableName.split("\\.");
+        String pureTableName = tableNameSlieces[tableNameSlieces.length - 1];
+        if (TABLE_JOB_EXECUTION_LOG.equals(pureTableName)) {
             result = "start_time";
-        } else if (TABLE_JOB_STATUS_TRACE_LOG.equals(tableName)) {
+        } else if (TABLE_JOB_STATUS_TRACE_LOG.equals(pureTableName)) {
             result = "creation_time";
         }
         return result;
